@@ -1,7 +1,7 @@
 import yaml
 import numpy as np
-from design import Design
-from wrapper import NgSpiceWrapper
+from .design import Design
+from .wrapper import NgSpiceWrapper
 
 class EvaluationEngine(object):
 

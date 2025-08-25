@@ -9,7 +9,7 @@ import yaml
 import importlib
 import random
 import numpy as np
-from spectre_simulator.util.core import IDEncoder, Design
+from spectre_simulator.util.core import Design
 #from spectre_simulator.spectre.parser import SpectreParser
 from spectre_simulator.spectre.NgSpiceparser import NgSpiceParser
 import IPython
