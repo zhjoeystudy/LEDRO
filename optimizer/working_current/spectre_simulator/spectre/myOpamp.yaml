@@ -1,0 +1,45 @@
+database_dir: "/path/to/optimizer/working_current/checkpoint/db/fully_differential_folded_cascode"
+
+measurement:
+  meas_params: {} # high level measurement params go here for post process
+  testbenches:
+    ac_dc:
+      netlist_template: "/path/to/netlist/fully_differential_folded_cascode.sp"
+      tb_module: "spectre_simulator.spectre.meas_script.fully_differential_folded_cascode_meas_man"
+      tb_class: "ACTB"
+      post_process_function: "process_ac" # a class method defined in meas manager
+      tb_params: {} # lower level params for tb evaluation goes here
+
+params:
+  w12: !!python/tuple [!!float 2.5e-7, !!float 4.5e-7, 13]     # Input pair width
+  m12: !!python/tuple [3, 5, 3]                                 # Input pair multiplier
+  w34: !!python/tuple [!!float 2.8e-7, !!float 4.8e-7, 13]     # Current mirror width
+  m34: !!python/tuple [2, 4, 3]                                 # Current mirror multiplier
+  w5: !!python/tuple [!!float 3.2e-7, !!float 5.2e-7, 13]      # Tail transistor width
+  m5: !!python/tuple [4, 6, 3]                                  # Tail transistor multiplier
+  w6: !!python/tuple [!!float 3.5e-7, !!float 5.5e-7, 13]      # Output NMOS width
+  m6: !!python/tuple [3, 5, 3]                                  # Output NMOS multiplier
+  w7: !!python/tuple [!!float 4.0e-7, !!float 6.0e-7, 13]      # Output PMOS width
+  m7: !!python/tuple [3, 5, 3]                                  # Output PMOS multiplier
+  w8: !!python/tuple [!!float 4.5e-7, !!float 6.5e-7, 13]      # Bias PMOS width
+  m8: !!python/tuple [3, 5, 3]                                  # Bias PMOS multiplier
+  vbiasp1: !!python/tuple [!!float 0.35, !!float 0.55, 13]     # Bias voltage
+  vbiasn1: !!python/tuple [!!float 0.2, !!float 0.4, 13]       # Bias voltage
+  cm: !!python/tuple [!!float 1e-12, !!float 4e-12, 13]        # Load capacitance
+
+vcm: !!python/tuple [!!float 0.9, !!float 0.9, 1]
+vdd: !!python/tuple [!!float 1.8, !!float 1.8, 1]
+tempc: !!python/tuple [!!float 27, !!float 27, 1]
+
+spec_range:
+  gain: [!!float 1, null, 1]
+  funity: [!!float 1.0e+6, null, 1]
+  pm: [60.0, null, 1]
+
+normalize: !!python/tuple [!!float 3000, !!float 1e6, 10e-6, 70]
+
+target_spec:
+  gain: !!python/tuple [3000]
+  funity: !!python/tuple [!!float 20.0e+6]
+  pm: !!python/tuple [70]
+  power: !!python/tuple [10e-6]

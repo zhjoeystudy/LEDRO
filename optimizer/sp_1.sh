@@ -1,62 +1,134 @@
-input_file="/path/to/LLM/qa_output_amp_l.txt"
-output_file="/path/to/optimizer/qa_output_amp_l.txt"
-output_file1="/path/to/optimizer/qa_output_amp_l1.txt"
+#!/bin/bash
 
-# Extract lines starting with "nA", "nB", or "vbias"
-grep -E '^(nA|nB|vbias|cc)' "$input_file" > "$output_file"
+# ----------------------------
+# 1. Configuration
+# ----------------------------
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-python /path/to/optimizer/transform_file.py $output_file $output_file1
+# Input files
+INPUT_FILE="${SCRIPT_DIR}/../LLM/qa_output_amp_l.txt"
+PYTHON_SCRIPT="${SCRIPT_DIR}/transform_file.py"
+YAML_TEMPLATE="${SCRIPT_DIR}/working_current/spectre_simulator/spectre/specs_list_read/fully_differential_folded_cascode_basic.yaml"
+PYTHON_TEMPLATE="${SCRIPT_DIR}/working_current/sample/random_sample_turbo_1.py"
 
-temp_file=$output_file
-awk '{print "  " $0}' "$output_file1" > "$temp_file"
+# Output files
+OUTPUT_FILE="${SCRIPT_DIR}/qa_output_amp_l.txt"
+OUTPUT_FILE1="${SCRIPT_DIR}/qa_output_amp_l1.txt"
+YAML_OUTPUT="${SCRIPT_DIR}/working_current/spectre_simulator/spectre/specs_list_read/fully_differential_folded_cascode.yaml"
+PYTHON_OUTPUT="${SCRIPT_DIR}/working_current/sample/random_sample_turbo_1.py"
 
-file1="$temp_file"
-file2="/path/to/optimizer/working_current/spectre_simulator/spectre/specs_list_read/fully_differential_folded_cascode_basic.yaml"
-file3="/path/to/optimizer/working_current/spectre_simulator/spectre/specs_list_read/fully_differential_folded_cascode.yaml"
+# Temporary files
+TEMP_FILE=$(mktemp)
+TEMP_FILE1=$(mktemp)
+TEMP_FILE2=$(mktemp)
 
-temp_file1=$(mktemp)
-found=0
-while IFS= read -r line; do
-  echo "$line" >> "$temp_file1"
-  if [[ "$line" == params:* ]]; then
-    found=1
-    # After finding "params:", copy contents of file1
-    cat "$file1" >> "$temp_file1"
-  fi
-done < "$file2"
+# ----------------------------
+# 2. Input Validation
+# ----------------------------
+validate_files() {
+    local missing_files=()
+    
+    [[ ! -f "$INPUT_FILE" ]] && missing_files+=("Input file: $INPUT_FILE")
+    [[ ! -f "$PYTHON_SCRIPT" ]] && missing_files+=("Python script: $PYTHON_SCRIPT")
+    [[ ! -f "$YAML_TEMPLATE" ]] && missing_files+=("YAML template: $YAML_TEMPLATE")
+    [[ ! -f "$PYTHON_TEMPLATE" ]] && missing_files+=("Python template: $PYTHON_TEMPLATE")
+    
+    if [[ ${#missing_files[@]} -gt 0 ]]; then
+        echo "Error: Missing required files:" >&2
+        printf '  %s\n' "${missing_files[@]}" >&2
+        exit 1
+    fi
+}
 
-if [ "$found" -eq 0 ]; then
-  cat "$file1" >> "$temp_file1"
-fi
+validate_files
 
-mv "$temp_file1" "$file3"
+# ----------------------------
+# 3. Parameter Extraction
+# ----------------------------
+extract_parameters() {
+    echo "Extracting parameters from input file..."
+    grep -E '^(nA|nB|vbias|cc)' "$INPUT_FILE" > "$OUTPUT_FILE" || {
+        echo "Error: Failed to extract parameters" >&2
+        exit 1
+    }
+}
 
-file1="/path/to/LLM/qa_output_amp_l.txt"
-file2="/path/to/optimizer/working_current/sample/random_sample_turbo_1.py"
-temp_file="/path/to/LLM/tempfile.txt"
+transform_parameters() {
+    echo "Transforming parameters with Python script..."
+    if ! python "$PYTHON_SCRIPT" "$OUTPUT_FILE" "$OUTPUT_FILE1"; then
+        echo "Error: Python transformation failed" >&2
+        exit 1
+    fi
 
-declare -A range_values
+    # Add indentation for YAML
+    awk '{print "  " $0}' "$OUTPUT_FILE1" > "$TEMP_FILE"
+}
 
-# Read ranges from file1 and store them in the associative array
-while IFS=': ' read -r param range; do
-    param=$(echo $param | tr -d ' ,')
-    range_values[$param]=$(echo $range | tr -d '[]')
-done < <(grep -oP '^[^:]+: \[[^]]+\]' "$file1")
-
-# Read file2 line by line and replace the ranges
-while IFS= read -r line; do
-    for param in "${!range_values[@]}"; do
-        pattern="${param}_range = \([^)]*\)"
-        if [[ $line =~ $pattern ]]; then
-            # Replace the range in the line
-            new_range=${range_values[$param]}
-            line=$(echo "$line" | sed "s/${pattern}/${param}_range = ($new_range/")
+# ----------------------------
+# 4. YAML Generation
+# ----------------------------
+generate_yaml() {
+    echo "Generating YAML configuration..."
+    local found=0
+    
+    while IFS= read -r line; do
+        echo "$line" >> "$TEMP_FILE1"
+        
+        if [[ "$line" == params:* ]]; then
+            found=1
+            cat "$TEMP_FILE" >> "$TEMP_FILE1"
         fi
-    done
-    echo "$line" >> "$temp_file"
-done < "$file2"
+    done < "$YAML_TEMPLATE"
+    
+    [[ "$found" -eq 0 ]] && cat "$TEMP_FILE" >> "$TEMP_FILE1"
+    
+    mv "$TEMP_FILE1" "$YAML_OUTPUT"
+}
 
-# Replace the original file2 with the updated content
-mv "$temp_file" "$file2"
+# ----------------------------
+# 5. Python Template Processing
+# ----------------------------
+process_python_template() {
+    echo "Processing Python template..."
+    declare -A range_values
 
+    # Read ranges from input file
+    while IFS=': ' read -r param range; do
+        param=$(echo "$param" | tr -d ' ,')
+        range_values[$param]=$(echo "$range" | tr -d '[]')
+    done < <(grep -oP '^[^:]+: \[[^]]+\]' "$INPUT_FILE")
 
+    # Process template file
+    while IFS= read -r line; do
+        for param in "${!range_values[@]}"; do
+            pattern="${param}_range = \([^)]*\)"
+            if [[ "$line" =~ $pattern ]]; then
+                line=$(echo "$line" | sed "s/${pattern}/${param}_range = (${range_values[$param]}/")
+            fi
+        done
+        echo "$line" >> "$TEMP_FILE2"
+    done < "$PYTHON_TEMPLATE"
+
+    mv "$TEMP_FILE2" "$PYTHON_OUTPUT"
+}
+
+# ----------------------------
+# 6. Main Execution
+# ----------------------------
+main() {
+    extract_parameters
+    transform_parameters
+    generate_yaml
+    process_python_template
+    
+    # Cleanup temporary files
+    rm -f "$TEMP_FILE" "$OUTPUT_FILE1"
+    
+    echo "Successfully generated:"
+    echo "  - YAML config: $YAML_OUTPUT"
+    echo "  - Python script: $PYTHON_OUTPUT"
+}
+
+main
+
+exit 0

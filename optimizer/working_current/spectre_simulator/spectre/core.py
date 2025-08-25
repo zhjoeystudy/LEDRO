@@ -10,10 +10,13 @@ import importlib
 import random
 import numpy as np
 from spectre_simulator.util.core import IDEncoder, Design
-from spectre_simulator.spectre.parser import SpectreParser
+#from spectre_simulator.spectre.parser import SpectreParser
+from spectre_simulator.spectre.NgSpiceparser import NgSpiceParser
 import IPython
 import shutil
-debug = False 
+
+debug = False
+
 
 def get_config_info():
     # TODO
@@ -25,6 +28,147 @@ def get_config_info():
         config_info['BASE_TMP_DIR'] = base_tmp_dir
 
     return config_info
+
+
+class NgSpiceWrapper(object):
+    def __init__(self, tb_dict):
+        netlist_loc = tb_dict['netlist_template']
+        if not os.path.isabs(netlist_loc):
+            netlist_loc = os.path.abspath(netlist_loc)
+        pp_module = importlib.import_module(tb_dict['tb_module'])
+        pp_class = getattr(pp_module, tb_dict['tb_class'])
+        self.post_process = getattr(pp_class, tb_dict['post_process_function'])
+        self.tb_params = tb_dict['tb_params']
+        self.config_info = get_config_info()
+        self.root_dir = self.config_info['BASE_TMP_DIR']
+        self.num_process = self.config_info.get('NUM_PROCESS', 1)
+
+        _, dsn_netlist_fname = os.path.split(netlist_loc)
+        self.base_design_name = os.path.splitext(dsn_netlist_fname)[0] + str(random.randint(0, 10000))
+        self.gen_dir = os.path.join(self.root_dir, "designs_" + self.base_design_name)
+        os.makedirs(self.gen_dir, exist_ok=True)
+
+        file_loader = FileSystemLoader(os.path.dirname(netlist_loc))
+        self.jinja_env = Environment(loader=file_loader)
+        self.template = self.jinja_env.get_template(dsn_netlist_fname)
+
+    def _get_design_name(self, state):
+        """
+        Creates a unique identifier fname based on the state
+        :param state:
+        :return:
+        """
+        fname = self.base_design_name
+        for value in state.values():
+            if value <= 2E-13:  # cap
+                x = value * 1E14
+                fname += "_" + str(round(x, 2))
+            elif value <= 1E-6:  # lengths
+                x = value * 1E7
+                fname += "_" + str(round(x, 2))
+            else:
+                fname += "_" + str(round(value, 2))
+        return fname
+
+    def _create_design(self, state, new_fname):
+        output = self.template.render(**state)
+        design_folder = os.path.join(self.gen_dir, new_fname)
+        os.makedirs(design_folder, exist_ok=True)
+        fpath = os.path.join(design_folder, new_fname + '.scs')
+        with open(fpath, 'w') as f:
+            f.write(output)
+            f.close()
+        return design_folder, fpath
+
+    def _simulate(self, fpath):
+        log_file = os.path.join(os.path.dirname(fpath), 'sim_log.txt')
+        out_file = os.path.join(os.path.dirname(fpath), 'output.tr0')
+        command = ['ngspice', '-b', fpath, '-r', out_file]
+        with open(log_file, 'w') as file1:
+            exit_code = subprocess.call(command, stdout=file1, stderr=subprocess.STDOUT)
+        info = 1 if exit_code != 0 else 0
+        return info, out_file
+
+    def _create_design_and_simulate(self, state, dsn_name=None, verbose=False):
+        if debug:
+            print('state', state)
+            print('verbose', verbose)
+        if dsn_name == None:
+            dsn_name = self._get_design_name(state)
+        else:
+            dsn_name = str(dsn_name)
+        if verbose:
+            print('dsn_name', dsn_name)
+        # add additional width metrics to 45nm netlist
+        # if "45nm" in dsn_name:
+        #   wdict = {}
+        #   for each_param in state:
+        #     if not("cc" in each_param):
+        #       wdict['w'+each_param] = state[each_param]*654e-9
+        #   state.update(wdict)
+
+        design_folder, fpath = self._create_design(state, dsn_name)
+        info = self._simulate(fpath)
+        results = self._parse_result(design_folder)
+        if self.post_process:
+            specs = self.post_process(results, self.tb_params)
+            # shutil.rmtree(design_folder)
+            #    print("design_folder", design_folder)
+            return state, specs, info
+        # print("design_folder", design_folder)
+        specs = results
+
+        return state, specs, info
+
+    def _parse_result(self, design_folder):
+        """
+        Parses NgSpice simulation results from .tr0 or .txt output.
+        Assumes that the netlist includes .print statements to generate readable output.
+        """
+        # Try to find the main output file
+        base_name = os.path.join(design_folder, os.path.basename(design_folder))
+        tr0_file = base_name + '.tr0'  # Binary result file
+        txt_file = base_name + '.txt'  # ASCII result file (if using .print)
+
+        if os.path.exists(txt_file):
+            out_file = txt_file
+        elif os.path.exists(tr0_file):
+            out_file = tr0_file
+        else:
+            raise FileNotFoundError(f"No output file found in {design_folder}")
+
+        res = NgSpiceParser.parse(out_file)
+        return res
+        ##print(os.system("ls -l " + os.path.join("/proc",str(os.getpid()),"fd")))
+        # for fd in os.listdir(os.path.join("/proc", str(os.getpid()), "fd")):
+        #    if int(fd) == 16:
+        #      os.close(int(fd))
+
+        # onlyfiles = [f for f in os.listdir(raw_folder) if os.path.isfile(os.path.join(raw_folder, f))]
+        # for file in os.listdir(raw_folder):
+        #  os.remove(os.path.join(raw_folder, file))
+        return res
+
+    def run(self, states, design_names=None, verbose=False):
+        # TODO: Use asyncio to instantiate multiple jobs for running parallel sims
+        """
+
+        :param states:
+        :param design_names: if None default design name will be used, otherwise the given design name will be used
+        :param verbose: If True it will print the design name that was created
+        :return:
+            results = [(state: dict(param_kwds, param_value), specs: dict(spec_kwds, spec_value), info: int)]
+        """
+        pool = ThreadPool(processes=self.num_process)
+        arg_list = [(state, dsn_name, verbose) for (state, dsn_name) in zip(states, design_names)]
+        specs = pool.starmap(self._create_design_and_simulate, arg_list)
+        pool.close()
+        return specs
+
+    def return_path(self):
+        # print(self.gen_dir)
+        return self.gen_dir
+
 
 class SpectreWrapper(object):
 
@@ -140,15 +284,15 @@ class SpectreWrapper(object):
             return state, specs, info
         #print("design_folder", design_folder)
         specs = results
-        
+
         return state, specs, info
 
     def _parse_result(self, design_folder):
         _, folder_name = os.path.split(design_folder)
         raw_folder = os.path.join(design_folder, '{}.raw'.format(folder_name))
         res = SpectreParser.parse(raw_folder)
-        
-       
+
+
         ##print(os.system("ls -l " + os.path.join("/proc",str(os.getpid()),"fd")))
         #for fd in os.listdir(os.path.join("/proc", str(os.getpid()), "fd")):
         #    if int(fd) == 16:
@@ -199,10 +343,10 @@ class EvaluationEngine(object):
 
         # minimum and maximum of each parameter
         # params_vec contains the acutal numbers but min and max should be the indices
-        self.params_min = [0]*len(self.params_vec)
+        self.params_min = [0] * len(self.params_vec)
         self.params_max = []
         for val in self.params_vec.values():
-            self.params_max.append(len(val)-1)
+            self.params_max.append(len(val) - 1)
 
         self.id_encoder = IDEncoder(self.params_vec)
         self.measurement_specs = self.ver_specs['measurement']
@@ -210,7 +354,6 @@ class EvaluationEngine(object):
         self.netlist_module_dict = {}
         for tb_kw, tb_val in tbs.items():
             self.netlist_module_dict[tb_kw] = SpectreWrapper(tb_val)
-
 
     @property
     def num_params(self):
@@ -222,7 +365,7 @@ class EvaluationEngine(object):
         :return: a list of n Design objects with populated attributes (i.e. cost, specs, id)
         """
         valid_designs, tried_designs = [], []
-        nvalid_designs = 0 
+        nvalid_designs = 0
 
         useless_iter_count = 0
         while len(valid_designs) < n:
@@ -250,8 +393,6 @@ class EvaluationEngine(object):
             print("not valid designs:" + str(nvalid_designs))
         return valid_designs[:n]
 
-   
-
     def evaluate(self, design_list, debug=True, parallel_config=None):
         """
         serial implementation of evaluate (not parallel)
@@ -261,29 +402,29 @@ class EvaluationEngine(object):
         """
         results = []
         if len(design_list) > 1:
-          for design in design_list:
-              try:
-                  result = self._evaluate(design, parallel_config=parallel_config)
-                  #result['valid'] = True
-              except Exception as e:
-                  if debug:
-                      raise e
-                  result = {'valid': False}
-                  print(getattr(e, 'message', str(e)))
+            for design in design_list:
+                try:
+                    result = self._evaluate(design, parallel_config=parallel_config)
+                    # result['valid'] = True
+                except Exception as e:
+                    if debug:
+                        raise e
+                    result = {'valid': False}
+                    print(getattr(e, 'message', str(e)))
 
-              results.append(result)
+                results.append(result)
         else:
-          try:
-            netlist_name, netlist_module = list(self.netlist_module_dict.items())[0]
-            result = netlist_module._create_design_and_simulate(design_list[0])
-          except Exception as e:
-            if debug:
-              raise e
-            result = {'valid': False}
-            print(getattr(e, 'message', str(e)))
-          results.append(result)
-        return_loc=netlist_module.return_path()
-        #print(return_loc)
+            try:
+                netlist_name, netlist_module = list(self.netlist_module_dict.items())[0]
+                result = netlist_module._create_design_and_simulate(design_list[0])
+            except Exception as e:
+                if debug:
+                    raise e
+                result = {'valid': False}
+                print(getattr(e, 'message', str(e)))
+            results.append(result)
+        return_loc = netlist_module.return_path()
+        # print(return_loc)
         shutil.rmtree(return_loc)
         return results
 
@@ -340,15 +481,18 @@ class EvaluationEngine(object):
         # use self.spec_range[spec_kwrd] to get the min, max, and weight
         raise NotImplementedError
 
-def main():
-  #testing the cs amp functionality with Jinja2
-  dsn_netlist = '/path/to/optimizer/working_current/spectre_simulator/spectre/netlist_templates/7nm/fully_differential_folded_cascode.scs'
-  opamp_env = SpectreWrapper(tb_dict=dsn_netlist)
-  #w = 654e-9
-#  state = {"nA1":65e-9, "nA2":65e-9, "nA3":65e-9, "nA4":65e-9, "nA5":65e-9, "nA6":65e-9, "nA7":65e-9, "nA8":65e-9, "nB1":500e-9, "nB2":500e-9, "nB3":500e-9, "nB4":500e-9, "nB5":500e-9, "nB6":500e-9, "nB7":500e-9, "nB8":500e-9, "cc":10.0e-15, "vdc":1.4, "vcm":.7, "vbiasp":.7, "vbiasp1":.7, "vbiasp2":.7, "vbiasn":.7, "vbiasn1":.7, "vbiasn2":.7, "tempc":27}
-  state = {"nA1":65e-9, "nA2":65e-9, "nA3":65e-9, "nA4":65e-9, "nB1":2, "nB2":2, "nB3":2, "nB4":2, "vdc":0.7, "vcm":.7, "vbiasp2":.7, "vbiasn":.7, "tempc":27}
-  
-  opamp_env._create_design_and_simulate(state)
 
-if __name__=="__main__":
-  main()
+def main():
+    # testing the cs amp functionality with Jinja2
+    dsn_netlist = '/path/to/optimizer/working_current/spectre_simulator/spectre/netlist_templates/7nm/fully_differential_folded_cascode.scs'
+    opamp_env = SpectreWrapper(tb_dict=dsn_netlist)
+    # w = 654e-9
+    #  state = {"nA1":65e-9, "nA2":65e-9, "nA3":65e-9, "nA4":65e-9, "nA5":65e-9, "nA6":65e-9, "nA7":65e-9, "nA8":65e-9, "nB1":500e-9, "nB2":500e-9, "nB3":500e-9, "nB4":500e-9, "nB5":500e-9, "nB6":500e-9, "nB7":500e-9, "nB8":500e-9, "cc":10.0e-15, "vdc":1.4, "vcm":.7, "vbiasp":.7, "vbiasp1":.7, "vbiasp2":.7, "vbiasn":.7, "vbiasn1":.7, "vbiasn2":.7, "tempc":27}
+    state = {"nA1": 65e-9, "nA2": 65e-9, "nA3": 65e-9, "nA4": 65e-9, "nB1": 2, "nB2": 2, "nB3": 2, "nB4": 2, "vdc": 0.7,
+             "vcm": .7, "vbiasp2": .7, "vbiasn": .7, "tempc": 27}
+
+    opamp_env._create_design_and_simulate(state)
+
+
+if __name__ == "__main__":
+    main()

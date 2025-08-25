@@ -1,0 +1,38 @@
+* Folded Cascode OTA - AC Test
+
+.include '180nm_bulk.lib'
+.include 'params.inc'
+
+V1 Vp GND DC 0.9 AC 0.2
+V2 Vn GND DC 0.9 AC -0.2
+C2 Vout GND 4p
+C1 Vout net3 {cm}
+
+M7 Vout net6 VDD VDD PMOS1 l={l7} w={w7}
+M6 Vout net3 GND GND NMOS1 l={l6} w={w6}
+M2 net3 Vp net1 VDD PMOS1 l={l12} w={w12}
+M1 net2 Vn net1 VDD PMOS1 l={l12} w={w12}
+M4 net3 net2 GND GND NMOS1 l={l34} w={w34}
+M3 net2 net2 GND GND NMOS1 l={l34} w={w34}
+M5 net1 net6 VDD VDD PMOS1 l={l5} w={w5}
+V0 VDD GND DC {vdd}
+M8 net6 net6 VDD VDD PMOS1 l={l8} w={w8}
+I1 net6 GND DC 10u
+
+*.nodeset v(net1)=1.5 v(net2)=1.5 v(net3)=1.5
+
+.ac dec 100 1k 100Meg
+
+*.options numdgt=6 itl1=200 itl2=200
+
+.control
+set filetype=ascii
+run
+ac dec 100 1k 100Meg
+print v(vp) > ac_vp.txt
+print v(vn) > ac_vn.txt
+print frequency v(vout) > ac_out.txt
+*plot v(vout)/v(vp) vs frequency
+.endc
+
+.end

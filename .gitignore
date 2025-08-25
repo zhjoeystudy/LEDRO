@@ -1,0 +1,50 @@
+# --- Python bytecode ---
+__pycache__/
+*.py[cod]
+*.pyo
+
+# C extensions
+*.so
+
+# Virtual environments
+.env/
+.venv/
+venv/
+ENV/
+
+# Jupyter/IPython
+.ipynb_checkpoints/
+
+# IDE / Editors
+.vscode/
+.idea/
+*.swp
+
+# Logs / Dumps
+*.log
+
+# Cache / Temp
+*.tmp
+*.temp
+
+# Model / Large intermediate artifacts
+*.pkl
+*.pickle
+
+# Simulation numeric outputs (regenerate)
+optimizer/working_current/spectre_simulator/spectre/*_values.csv
+optimizer/working_current/spectre_simulator/spectre/output.txt
+
+# Ignore generated QA outputs
+LLM/output/
+
+# Keep circuit/netlist & YAML (override ignores)
+!optimizer/working_current/spectre_simulator/spectre/*.cir
+!optimizer/working_current/spectre_simulator/spectre/*.yaml
+!optimizer/working_current/spectre_simulator/spectre/*.inc
+
+# Do not ignore source JSON data
+!LLM/data/*.json
+
+# macOS
+.DS_Store

@@ -1,50 +1,68 @@
 #!/bin/bash
 
-# Define the text file to be read
-text_file="/path/to/optimizer/out11.txt"
+# ----------------------------
+# 1. Configuration
+# ----------------------------
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+INPUT_FILE="${SCRIPT_DIR}/out11.txt"
+OUTPUT_FILE="${SCRIPT_DIR}/gp11.txt"
+TEMP_FILE="${SCRIPT_DIR}/temp_extracted_lines11.txt"
+TOP_REWARD_FILE="${SCRIPT_DIR}/top_reward11.txt"
+TOP_5_FILE="${SCRIPT_DIR}/top_5_rewards11.txt"
 
-# Define the output file where the matching lines will be stored
-output_file="/path/to/optimizer/gp11.txt"
+# ----------------------------
+# 2. Input Validation
+# ----------------------------
+if [ ! -f "$INPUT_FILE" ]; then
+    echo "Error: Input file $INPUT_FILE not found!" >&2
+    exit 1
+fi
 
-# Use grep to extract lines containing any of the specified strings
-# awk '
-#   /metrics/ && /True/ {print; getline; print}
-# ' "$text_file" > "$output_file"
-# sed -i 's/True//g' "$output_file"
-# sed -i "s/.*nA1/nA1/" "$output_file"
-# sed -i "s/.*metrics/metrics/" "$output_file"
-
+# ----------------------------
+# 3. Initial Processing
+# ----------------------------
+# Process with awk to extract relevant lines
 awk '
-  /metrics/ && /True/ { 
-    if (getline nextline && getline nextnextline && getline nextnextnextline) { 
+  /metrics/ && /True/ {
+    if (getline nextline && getline nextnextline && getline nextnextnextline) {
       if (nextnextnextline ~ /reward/) {
-        print $0; 
-		print nextline;
-        print nextnextline;
-        print nextnextnextline;
+        print $0
+        print nextline
+        print nextnextline
+        print nextnextnextline
       }
     }
   }
-' "$text_file" > "$output_file"
+' "$INPUT_FILE" > "$OUTPUT_FILE"
 
-sed -i 's/True//g' "$output_file"
+# Clean up True values if output was created
+[ -f "$OUTPUT_FILE" ] && sed -i 's/True//g' "$OUTPUT_FILE"
 
-grep "reward" /path/to/optimizer/gp11.txt | sed 's/reward //' | sort -nr | head -1 > /path/to/optimizer/top_reward11.txt
+# ----------------------------
+# 4. Reward Extraction
+# ----------------------------
+# Get top reward
+grep "reward" "$OUTPUT_FILE" | sed 's/reward //' | sort -nr | head -1 > "$TOP_REWARD_FILE"
 
+# Extract lines with key patterns
+awk '/metrics/ || /nA/ || /MM/ || /reward/' "$OUTPUT_FILE" > "$TEMP_FILE"
 
-awk '/metrics/ || /nA/ || /MM/ || /reward/' "$output_file" > /path/to/optimizer/temp_extracted_lines11.txt
-grep "reward" /path/to/optimizer/temp_extracted_lines11.txt | sed 's/reward //' | sort -nr | head -5 > /path/to/optimizer/top_5_rewards11.txt
+# Get top 5 rewards
+grep "reward" "$TEMP_FILE" | sed 's/reward //' | sort -nr | head -5 > "$TOP_5_FILE"
+
+# ----------------------------
+# 5. Data Block Processing
+# ----------------------------
 declare -A rewards_map
 while read -r reward; do
     rewards_map["$reward"]=1
-done < /path/to/optimizer/top_5_rewards11.txt
+done < "$TOP_5_FILE"
 
-# Initialize variables to store lines
+declare -a data_blocks
 metrics_line=""
 na_line=""
 gm_line=""
-# Iterate through the extracted lines and print the required lines
-declare -a data_blocks
+
 while read -r line; do
     if [[ "$line" =~ metrics ]]; then
         metrics_line="$line"
@@ -55,19 +73,25 @@ while read -r line; do
     elif [[ "$line" =~ reward ]]; then
         reward_value=$(echo "$line" | sed 's/reward //')
         if [[ ${rewards_map["$reward_value"]} ]]; then
-            #echo "$metrics_line"
-            #echo "$na_line"
-            #echo "$gm_line"
-            #echo "$line"
- 	data_blocks+=("$reward_value $metrics_line\n$na_line\n$gm_line\n$line")
+            data_blocks+=("$reward_value $metrics_line\n$na_line\n$gm_line\n$line")
         fi
     fi
-done < $output_file
+done < "$OUTPUT_FILE"
 
-
-IFS=$'\n' sorted_blocks=($(sort -r -n <<<"${data_blocks[*]}"))
+# ----------------------------
+# 6. Final Output Generation
+# ----------------------------
 {
+    IFS=$'\n' sorted_blocks=($(sort -r -n <<<"${data_blocks[*]}"))
     for block in "${sorted_blocks[@]}"; do
         echo -e "${block#* }"
     done
-} > "/path/to/optimizer/top_5_rewards11.txt"
+} > "$TOP_5_FILE"
+
+# ----------------------------
+# 7. Cleanup (optional)
+# ----------------------------
+# Uncomment to remove temporary file
+# rm -f "$TEMP_FILE"
+
+exit 0

@@ -1,4 +1,4 @@
-from spectre_simulator.spectre.core import EvaluationEngine
+from ..evaluationEngine import EvaluationEngine
 import numpy as np
 import pdb
 import IPython
