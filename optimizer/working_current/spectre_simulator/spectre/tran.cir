@@ -1,18 +1,35 @@
-*Sheet Name:/OPA_SR
-V1  Vin GND dc pwl(0 0.9 0.5e-6 0.9 0.5e-6 1)
-C2  Vout GND 4e-12
-C1  net3 Vout {cm}
-M7  Vout net6 VDD VDD PMOS1 l={l7} w={w7} Pd= 2{w7} Ps= 2{w7}
-M6  Vout net3 GND GND NMOS1 l={l6} w={w6} Pd=2{w6} Ps=2{w6}
-M2  net3 Vin net1 VDD PMOS1 l={l12} w={w12} Pd=2{w12} Ps=2{w12}
-M1  net2 Vout net1 VDD PMOS1 l={l12} w={w12} Pd=2{w12} Ps=2{w12}
-M4  net3 net2 GND GND NMOS1 l={l34} w={w34} Pd=2{w34} Ps=2{w34}
-M3  net2 net2 GND GND NMOS1 l={l34} w={w34} Pd=2{w34} Ps=2{w34}
-M5  net1 net6 VDD VDD PMOS1 l={l5} w={w5}  Pd=2{w5} Ps=2{w5}
-V0  VDD GND 1.8
-M8  net6 net6 VDD VDD PMOS1 l={l8} w={w8} Pd=2{w8} Ps=2{w8}
-I1  net6 GND 10e-6
+* Folded Cascode OTA - Transient Test
 
-*.include 180nm_bulk.pm
+.include '180nm_bulk.lib'
+.include 'params.inc'
+
+V1  Vin GND DC 0.9 pwl(0 0.9 0.5e-6 0.9 0.5e-6 1)
+C2  Vout GND 4p
+C1  net3 Vout {cm}
+M7  Vout net6 VDD VDD PMOS1 l={l7} w={w7}
+M6  Vout net3 GND GND NMOS1 l={l6} w={w6}
+M2  net3 Vin net1 VDD PMOS1 l={l12} w={w12}
+M1  net2 Vout net1 VDD PMOS1 l={l12} w={w12}
+M4  net3 net2 GND GND NMOS1 l={l34} w={w34}
+M3  net2 net2 GND GND NMOS1 l={l34} w={w34}
+M5  net1 net6 VDD VDD PMOS1 l={l5} w={w5}
+V0  VDD GND DC {vdd}
+M8  net6 net6 VDD VDD PMOS1 l={l8} w={w8}
+I1  net6 GND DC 10u
+
+*.nodeset v(net1)=1.5 v(net2)=1.5 v(net3)=1.5
+
+.tran 0.01u 1u
+
+*.options numdgt=6 itl1=200 itl2=200
+
+.control
+set filetype=ascii
+run
+tran 0.01u 1u
+print time v(vin) > tran_vin.txt
+print time v(vout) > tran_vout.txt
+*plot v(vout) vs time
+.endc
 
 .end

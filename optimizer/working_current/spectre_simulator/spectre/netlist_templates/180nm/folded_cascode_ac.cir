@@ -1,0 +1,34 @@
+* Folded Cascode OTA - AC Test (NgSpice Template)
+
+.include '/home/runner/work/LEDRO/LEDRO/optimizer/working_current/spectre_simulator/spectre/180nm_bulk.lib'
+
+* Simple folded cascode amplifier for 180nm process
+V1 Vp GND DC 0.9 AC 0.2
+V2 Vn GND DC 0.9 AC -0.2
+C2 Vout GND 4p
+C1 Vout net3 1p
+
+* Transistor sizing using template parameters
+M7 Vout net6 VDD VDD PMOS1 l={{nA1|default(0.25e-6)}} w={{nB1*0.18e-6|default(0.9e-6)}}
+M6 Vout net3 GND GND NMOS1 l={{nA3|default(0.18e-6)}} w={{nB3*0.18e-6|default(0.54e-6)}}
+M2 net3 Vp net1 VDD PMOS1 l={{nA2|default(0.28e-6)}} w={{nB2*0.18e-6|default(0.36e-6)}}
+M1 net2 Vn net1 VDD PMOS1 l={{nA2|default(0.28e-6)}} w={{nB2*0.18e-6|default(0.36e-6)}}
+M4 net3 net2 GND GND NMOS1 l={{nA4|default(0.42e-6)}} w={{nB4*0.18e-6|default(0.36e-6)}}
+M3 net2 net2 GND GND NMOS1 l={{nA4|default(0.42e-6)}} w={{nB4*0.18e-6|default(0.36e-6)}}
+M5 net1 net6 VDD VDD PMOS1 l={{nA5|default(0.32e-6)}} w={{nB5*0.18e-6|default(0.9e-6)}}
+V0 VDD GND DC {{vdd|default(0.8)}}
+M8 net6 net6 VDD VDD PMOS1 l={{nA6|default(0.45e-6)}} w={{nB6*0.18e-6|default(0.72e-6)}}
+I1 net6 GND DC 10u
+
+.ac dec 100 1k 100Meg
+
+.control
+set filetype=ascii
+run
+ac dec 100 1k 100Meg
+* Generate output in format expected by NgSpiceAdapter
+* frequency Voutp Voutn
+print frequency v(vout) v(vn) > ac_out.txt
+.endc
+
+.end

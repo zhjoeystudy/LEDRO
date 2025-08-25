@@ -1,0 +1,21 @@
+* Simple test circuit
+
+.include '180nm_bulk.lib'
+
+* Simple transistor test
+VDD VDD GND DC 1.8
+VGS VG GND DC 0.7
+VDS VD GND DC 0.9
+
+M1 VD VG GND GND NMOS1 l=0.18u w=1u
+
+.ac dec 10 1k 1Meg
+
+.control
+set filetype=ascii
+run
+ac dec 10 1k 1Meg
+print frequency v(vd) v(vg) > ac_out.txt
+.endc
+
+.end

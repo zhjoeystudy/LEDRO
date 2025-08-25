@@ -7,8 +7,9 @@ from multiprocessing.dummy import Pool as ThreadPool
 import importlib
 
 # Import from local project files
-from analysis import AcFileParser, DcOpParser
-from design import Design
+from .analysis import AcFileParser, DcOpParser
+from .design import Design
+from .ngspice_adapter import NgSpiceAdapter
 
 
 class NgSpiceWrapper:
@@ -72,10 +73,12 @@ class NgSpiceWrapper:
         return design_folder, fpath
 
     def _simulate(self, fpath):
-        """Runs the ngspice simulation command in the specified design folder."""
+        """Runs the ngspice simulation with control blocks in the specified design folder."""
         log_file = os.path.join(os.path.dirname(fpath), 'sim_log.txt')
-        command = ['ngspice', '-b', 'ac.cir']
         design_folder = os.path.dirname(fpath)
+        
+        # Use ngspice with echo quit to automatically exit after control blocks
+        command = ['bash', '-c', 'echo "quit" | ngspice ac.cir']
 
         with open(log_file, 'w') as file1:
             exit_code = subprocess.call(command, cwd=design_folder, stdout=file1, stderr=subprocess.STDOUT)
@@ -85,21 +88,11 @@ class NgSpiceWrapper:
 
 
     def _parse_result(self, design_folder):
-            """
-            Parses both AC and DC output files and returns a combined dictionary.
-            """
-            # Parse all ac_*.txt files
-            ac_results = AcFileParser.parse(design_folder)
-
-            # Parse the dc_operating_point.txt file
-            dc_op_path = os.path.join(design_folder, "dc_operating_point.txt")
-            dc_results = DcOpParser.parse(dc_op_path)
-
-            # Return a combined dictionary
-            return {
-                'ac_results': ac_results,
-                'dc_results': dc_results,
-            }
+        """
+        Uses the NgSpiceAdapter to parse ngspice outputs and convert them to the format
+        expected by measurement scripts.
+        """
+        return NgSpiceAdapter.parse_and_adapt(design_folder)
 
     def _create_design_and_simulate(self, state, dsn_name=None, verbose=False):
         """A complete pipeline for a single design point."""
